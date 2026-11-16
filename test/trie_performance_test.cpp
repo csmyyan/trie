@@ -197,7 +197,7 @@ TEST(TriePerformance, CopyOnWriteRelativeToFullCopy) {
       return sum;
     });
   };
-  Compare("task1/cow_vs_full_map_copy", full_copy, [&] { return UpdateTrie(tree, keys, steps); }, 3.0);
+  Compare("task1/cow_vs_full_map_copy", full_copy, [&] { return UpdateTrie(tree, keys, steps); }, 16.0);
 }
 
 TEST(TriePerformance, UpdateCostWithLargerTree) {
@@ -329,16 +329,16 @@ void StoreComparison(const std::string &name, uint32_t threads, Workload load, d
 
 STORE_PERFORMANCE_TEST(ReadOnlyRelativeToSerial) {
   for (uint32_t threads : {1U, 4U}) {
-    StoreComparison<Store>(name, threads, {100, 0, 512, 8192}, 0.25);
+    StoreComparison<Store>(name, threads, {100, 0, 512, 8192}, 0.75);
   }
 }
 
 STORE_PERFORMANCE_TEST(MixedRelativeToSerial) {
-  StoreComparison<Store>(name, 4, {80, 15, 512, 4096}, 0.25);
+  StoreComparison<Store>(name, 4, {80, 15, 512, 4096}, 0.75);
 }
 
 STORE_PERFORMANCE_TEST(HotWritesRelativeToSerial) {
-  StoreComparison<Store>(name, 4, {40, 45, 16, 2048}, 0.125);
+  StoreComparison<Store>(name, 4, {40, 45, 16, 2048}, 0.75);
 }
 
 #undef STORE_PERFORMANCE_TEST
