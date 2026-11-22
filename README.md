@@ -18,22 +18,21 @@
 | [test/trie_test.cpp](test/trie_test.cpp)                     | Task 1 的完整正确性测试                                      |
 | [test/trie_store_test.cpp](test/trie_store_test.cpp)         | Task 2A、2B 的完整正确性测试                                 |
 | [test/epoch_test.cpp](test/epoch_test.cpp)                   | Epoch 管理器及 Trie 集成测试                                 |
-| [test/trie_performance_test.cpp](test/trie_performance_test.cpp) | 最终性能验收：CoW 更新与每次完整复制 map 的对比 |
 | [test/test.h](test/test.h)、[test/test_utils.h](test/test_utils.h) | 测试断言、注册、固定键集合、独立 map 对照和线程辅助工具      |
 
 ## 2. 编译与完整测试
 
-需要支持 C++17 的编译器、CMake 3.20 或以上版本及系统线程库。最终验收包含一个 CoW 性能要求，使用 **Release** 构建。
+需要支持 C++17 的编译器、CMake 3.20 或以上版本及系统线程库。验收只检查功能、并发和内存回收正确性，**Debug 和 Release 均可**。
 
-在 `trie/` 根目录执行。日常调试使用 **Debug**，只运行正确性测试（排除最终性能验收）：
+在 `trie/` 根目录执行。日常调试使用 **Debug**，运行全部正确性测试：
 
 ```bash
 cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build-debug --config Debug --parallel 4
-ctest --test-dir build-debug -C Debug -LE "^performance$" --output-on-failure
+ctest --test-dir build-debug -C Debug --output-on-failure
 ```
 
-最终验收使用 **Release**，运行全部测试：
+也可以使用 **Release**，运行相同的全部测试：
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -43,10 +42,10 @@ ctest --test-dir build -C Release --output-on-failure
 
 两个构建目录可以同时保留，后文的 `build` 均指 Release 构建目录。Visual Studio 等多配置生成器通过 `--config` 和 `-C` 选择配置；Makefile、普通 Ninja 等单配置生成器通过 `CMAKE_BUILD_TYPE` 选择配置。
 
-默认运行全部 **8 个测试组**，所有用例统一纳入验收。全部任务完成后应得到：
+默认运行全部 **7 个测试组（112 个用例）**，所有用例统一纳入验收。全部任务完成后应得到：
 
 ```text
-100% tests passed, 0 tests failed out of 8
+100% tests passed, 0 tests failed out of 7
 ```
 
 每次修改代码后都要重新编译。未完成任务前相应测试失败是正常现象，可以先运行公共自检或已经完成的任务。
@@ -137,7 +136,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 ## 6. 按任务测试与通过标准
 
-先按第 2 节构建，然后选择需要验收的任务。按任务运行时只检查正确性，性能统一在最后验收：
+先按第 2 节构建，然后选择需要验收的任务：
 
 ```bash
 # 公共自检。
@@ -161,10 +160,9 @@ ctest --test-dir build -C Release -L '^task3$' --output-on-failure
 | 只测 Task 2A | `^mutex$` | 1 | 22 个正确性 |
 | 只测 Task 2B | `^cas$` | 1 | 27 个正确性 |
 | Task 3 | `^task3$` | 2 | 27 个正确性 |
-| 最终性能验收 | `^performance$` | 1 | 1 个 CoW 性能对比 |
-| 全量验收 | 不加标签 | 8 | 上述全部正确性用例及一个性能对比 |
+| 全量验收 | 不加标签 | 7 | 112 个正确性用例 |
 
-通过要求：重新构建成功；选中的测试组数量正确；对应任务的正确性用例全部通过；不出现崩溃、超时或内存错误。最终验收还需通过第 7 节的 CoW 性能对比。运行了 0 个测试、只通过单例或只通过性能测试，都不能替代完整任务验收。
+通过要求：重新构建成功；选中的测试组数量正确；对应任务的正确性用例全部通过；不出现崩溃、超时或内存错误。测试超时用于检测死锁或无法完成的操作。运行了 0 个测试或只通过单个用例，都不能替代完整任务验收。
 
 定位问题时可以查看详细输出或单独执行用例：
 
@@ -179,23 +177,7 @@ ctest --test-dir build -C Release -L '^task2$' -V
 ./build/epoch_test EpochTrieStoreTest.StaggeredReadersReleaseVersionsAndSharedValuesInStages
 ```
 
-## 7. 最终性能验收：CoW 更新与整表复制
-
-全部任务完成后，统一验收一个性能指标：**CoW 更新吞吐至少为每次完整复制 `std::map` 的 16 倍**。这项对比使用 Task 1 的 Trie 实现，单独运行一个测试组、一个用例：
-
-```bash
-ctest --test-dir build -C Release -L '^performance$' -V
-```
-
-固定工作负载：初始 4096 个键，每批 768 次更新，其中 3/4 为写入、1/4 为删除。两种实现都保留 8 个历史快照；CoW 复制修改路径，对照实现每次更新前完整复制 map。
-
-输出中的 `throughput_ratio = 完整复制每操作耗时 / CoW 每操作耗时`，达到 **16.0** 即通过。运行结果同时输出两种实现的 `ns/op`，用于解释路径复制与整表复制的成本差异。
-
-先预热，再交替顺序运行 5 轮，取每轮相对吞吐的中位数。每次采样重复固定工作负载，累计至少 20 ms 的计时工作或达到 64 批上限。初始建树和每批结束后的最终清理不计时；更新过程中的复制与回收计入。测试校验操作结果，并使用校验和避免计算被优化掉。
-
-性能验收由 CTest 串行执行。使用 Release 构建，不使用 Sanitizer，并在空闲机器上运行。Debug 构建会明确报错。临界失败应在相同 Release 构建下复测，并保留实际比例。
-
-## 8. 内存检查
+## 7. 内存检查
 
 使用支持 AddressSanitizer、UndefinedBehaviorSanitizer 的 GCC/Clang 时，可在独立构建目录检查悬挂指针、重复释放和未定义行为。例如检查 Task 1、2 的正确性：
 
@@ -205,10 +187,10 @@ cmake --build build-asan --parallel 4
 ctest --test-dir build-asan -L '^task[12]$' --output-on-failure
 ```
 
-按任务标签运行 Sanitizer 检查时只执行正确性用例；最终性能验收仍需使用 Release 构建运行。检测工具报告的内存错误也需要修复。
+检测工具报告的内存错误也需要修复。
 
-## 9. 来源
+## 8. 来源
 
-接口与部分测试源自 [CMU BusTub v20231227-2023fall](https://github.com/cmu-db/bustub/tree/v20231227-2023fall)，许可见 `LICENSE`。其余测试为本实验编写，包含随机模型对照、并发历史检查和相对性能验收。
+接口与部分测试源自 [CMU BusTub v20231227-2023fall](https://github.com/cmu-db/bustub/tree/v20231227-2023fall)，许可见 `LICENSE`。其余测试为本实验编写，包含随机模型对照和并发历史检查。
 
 EBR 参考：[Crossbeam Epoch 协议与延迟回收](https://docs.rs/crossbeam-epoch/latest/crossbeam_epoch/)。

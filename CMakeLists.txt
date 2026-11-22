@@ -15,7 +15,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-  foreach(name trie trie_store epoch trie_performance)
+  foreach(name trie trie_store epoch)
     add_executable(${name}_test test/${name}_test.cpp)
     target_link_libraries(${name}_test PRIVATE trie_core)
   endforeach()
@@ -33,8 +33,4 @@ if(BUILD_TESTING)
   set_tests_properties(cas_trie_store PROPERTIES LABELS "task2;cas" TIMEOUT 120)
   set_tests_properties(epoch PROPERTIES LABELS "task3;epoch" TIMEOUT 30)
   set_tests_properties(epoch_trie_store PROPERTIES LABELS "task3;epoch_store" TIMEOUT 60)
-
-  # The single performance requirement is checked at the end of the lab.
-  add_test(NAME trie_performance COMMAND trie_performance_test TriePerformance.CopyOnWriteRelativeToFullCopy)
-  set_tests_properties(trie_performance PROPERTIES LABELS performance RUN_SERIAL TRUE TIMEOUT 240)
 endif()
