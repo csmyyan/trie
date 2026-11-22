@@ -22,25 +22,17 @@
 
 ## 2. 编译与完整测试
 
-需要支持 C++17 的编译器、CMake 3.20 或以上版本及系统线程库。验收只检查功能、并发和内存回收正确性，**Debug 和 Release 均可**。
+需要支持 C++17 的编译器、CMake 3.20 或以上版本及系统线程库。验收只检查功能、并发和内存回收正确性，统一使用 **Debug**。
 
-在 `trie/` 根目录执行。日常调试使用 **Debug**，运行全部正确性测试：
-
-```bash
-cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-cmake --build build-debug --config Debug --parallel 4
-ctest --test-dir build-debug -C Debug --output-on-failure
-```
-
-也可以使用 **Release**，运行相同的全部测试：
+在 `trie/` 根目录执行，使用 **Debug** 构建并运行全部正确性测试：
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build --config Release --parallel 4
-ctest --test-dir build -C Release --output-on-failure
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+cmake --build build --config Debug --parallel 4
+ctest --test-dir build -C Debug --output-on-failure
 ```
 
-两个构建目录可以同时保留，后文的 `build` 均指 Release 构建目录。Visual Studio 等多配置生成器通过 `--config` 和 `-C` 选择配置；Makefile、普通 Ninja 等单配置生成器通过 `CMAKE_BUILD_TYPE` 选择配置。
+后文的 `build` 均指本节创建的构建目录。Visual Studio 等多配置生成器通过 `--config` 和 `-C` 选择配置；Makefile、普通 Ninja 等单配置生成器通过 `CMAKE_BUILD_TYPE` 选择配置。
 
 默认运行全部 **7 个测试组（112 个用例）**，所有用例统一纳入验收。全部任务完成后应得到：
 
@@ -140,16 +132,16 @@ ctest --test-dir build -C Release --output-on-failure
 
 ```bash
 # 公共自检。
-ctest --test-dir build -C Release -L '^provided$' --output-on-failure
+ctest --test-dir build -C Debug -L '^provided$' --output-on-failure
 
 # Task 1：CoW Trie 正确性。
-ctest --test-dir build -C Release -L '^task1$' --output-on-failure
+ctest --test-dir build -C Debug -L '^task1$' --output-on-failure
 
 # Task 2：两种 Store 的并发正确性。
-ctest --test-dir build -C Release -L '^task2$' --output-on-failure
+ctest --test-dir build -C Debug -L '^task2$' --output-on-failure
 
 # Task 3：Epoch 管理器和 Trie 集成。
-ctest --test-dir build -C Release -L '^task3$' --output-on-failure
+ctest --test-dir build -C Debug -L '^task3$' --output-on-failure
 ```
 
 | 验收范围 | `-L` 标签 | 预期测试组数 | 用例数 |
@@ -167,7 +159,7 @@ ctest --test-dir build -C Release -L '^task3$' --output-on-failure
 定位问题时可以查看详细输出或单独执行用例：
 
 ```bash
-ctest --test-dir build -C Release -L '^task2$' -V
+ctest --test-dir build -C Debug -L '^task2$' -V
 ./build/trie_test TrieTest.GetDecisionMatrix
 ./build/trie_test TrieTest.PutNodeTransitionMatrix
 ./build/trie_test TrieTest.RemoveDecisionMatrix
@@ -183,8 +175,8 @@ ctest --test-dir build -C Release -L '^task2$' -V
 
 ```bash
 cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
-cmake --build build-asan --parallel 4
-ctest --test-dir build-asan -L '^task[12]$' --output-on-failure
+cmake --build build-asan --config Debug --parallel 4
+ctest --test-dir build-asan -C Debug -L '^task[12]$' --output-on-failure
 ```
 
 检测工具报告的内存错误也需要修复。
