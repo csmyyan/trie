@@ -18,20 +18,19 @@
 | [test/trie_test.cpp](test/trie_test.cpp)                     | Task 1 的完整正确性测试                                      |
 | [test/trie_store_test.cpp](test/trie_store_test.cpp)         | Task 2A、2B 的完整正确性测试                                 |
 | [test/epoch_test.cpp](test/epoch_test.cpp)                   | Epoch 管理器及 Trie 集成测试                                 |
-| [test/trie_performance_test.cpp](test/trie_performance_test.cpp) | Task 1、2 的相对性能测试，以及测试专用的 map、单锁 Store 基准 |
+| [test/trie_performance_test.cpp](test/trie_performance_test.cpp) | 最终性能验收：CoW 更新与每次完整复制 map 的对比 |
 | [test/test.h](test/test.h)、[test/test_utils.h](test/test_utils.h) | 测试断言、注册、固定键集合、独立 map 对照和线程辅助工具      |
-| [test/trie_bench.cpp](test/trie_bench.cpp)                   | 额外的快照复制、查询及单线程混合操作观测程序                 |
 
 ## 2. 编译与完整测试
 
-需要支持 C++17 的编译器、CMake 3.20 或以上版本及系统线程库。完整验收包含性能要求，使用 **Release** 构建。
+需要支持 C++17 的编译器、CMake 3.20 或以上版本及系统线程库。最终验收包含一个 CoW 性能要求，使用 **Release** 构建。
 
-在 `trie/` 根目录执行。日常调试使用 **Debug**，只运行正确性测试（排除性能测试与基准程序）：
+在 `trie/` 根目录执行。日常调试使用 **Debug**，只运行正确性测试（排除最终性能验收）：
 
 ```bash
 cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build-debug --config Debug --parallel 4
-ctest --test-dir build-debug -C Debug -LE "performance|benchmark" --output-on-failure
+ctest --test-dir build-debug -C Debug -LE "^performance$" --output-on-failure
 ```
 
 最终验收使用 **Release**，运行全部测试：
@@ -44,10 +43,10 @@ ctest --test-dir build -C Release --output-on-failure
 
 两个构建目录可以同时保留，后文的 `build` 均指 Release 构建目录。Visual Studio 等多配置生成器通过 `--config` 和 `-C` 选择配置；Makefile、普通 Ninja 等单配置生成器通过 `CMAKE_BUILD_TYPE` 选择配置。
 
-默认运行全部 **11 个测试组**，所有用例统一纳入验收。全部任务完成后应得到：
+默认运行全部 **8 个测试组**，所有用例统一纳入验收。全部任务完成后应得到：
 
 ```text
-100% tests passed, 0 tests failed out of 11
+100% tests passed, 0 tests failed out of 8
 ```
 
 每次修改代码后都要重新编译。未完成任务前相应测试失败是正常现象，可以先运行公共自检或已经完成的任务。
@@ -62,7 +61,7 @@ ctest --test-dir build -C Release --output-on-failure
 | `Put<T>(key, value)` | 复制修改路径、共享其他分支，返回新 Trie；支持覆盖值和改变类型 |
 | `Remove(key)`        | 删除目标值，保留子键，剪去无值且无子节点的路径；删空后根为 `nullptr` |
 
-完整测试包含 **32 个正确性用例和 3 个性能用例**，覆盖基本操作、全部 256 种字节、长键与大值、类型转换、多分支历史快照、固定种子的 map 随机对照、异常和对象生命周期。
+本任务包含 **32 个正确性用例**，覆盖基本操作、全部 256 种字节、长键与大值、类型转换、多分支历史快照、固定种子的 map 随机对照、异常和对象生命周期。
 
 `GetDecisionMatrix` 明确检查空树、空键、路径首段/中段/末段不存在、路径终点无值、键超出叶子、类型不匹配、不可复制值及字符串视图边界。
 
@@ -98,7 +97,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 旧 Guard 必须一直保护其读取的旧值，并允许跨线程传递；写者构造新值或读者长期持有 Guard 时，其他允许并发的操作仍能推进。不可复制值不能在重试时被重复移动，异常不能改变已发布版本或留下未释放的锁。
 
-完整测试包含 **49 个正确性用例和 6 个性能用例**：互斥锁版 22 + 3 个，CAS 版 27 + 3 个。除基本并发外，还覆盖共享前缀、多写者、热点覆盖与删除、Guard 生命周期、构造异常和 CAS 冲突；还专门检查并发删除不存在的键/无值前缀不会丢失插入，以及反复删除空键或前缀值不会破坏并发插入的不可复制子键。
+本任务包含 **49 个正确性用例**：互斥锁版 22 个，CAS 版 27 个。除基本并发外，还覆盖共享前缀、多写者、热点覆盖与删除、Guard 生命周期、构造异常和 CAS 冲突；还专门检查并发删除不存在的键/无值前缀不会丢失插入，以及反复删除空键或前缀值不会破坏并发插入的不可复制子键。
 
 每种 Store 另有 100 轮小规模并发历史检查：每轮 3 个线程共执行 12 次操作，检查是否存在满足真实先后关系、查询结果和最终状态的合法串行顺序。有限测试通过不能替代对并发正确性的推导。
 
@@ -138,33 +137,34 @@ ctest --test-dir build -C Release --output-on-failure
 
 ## 6. 按任务测试与通过标准
 
-先按第 2 节构建，然后选择需要验收的任务：
+先按第 2 节构建，然后选择需要验收的任务。按任务运行时只检查正确性，性能统一在最后验收：
 
 ```bash
 # 公共自检。
 ctest --test-dir build -C Release -L '^provided$' --output-on-failure
 
-# Task 1：正确性和性能一起运行。
+# Task 1：CoW Trie 正确性。
 ctest --test-dir build -C Release -L '^task1$' --output-on-failure
 
-# Task 2：两种 Store 的正确性和性能一起运行。
+# Task 2：两种 Store 的并发正确性。
 ctest --test-dir build -C Release -L '^task2$' --output-on-failure
 
 # Task 3：Epoch 管理器和 Trie 集成。
 ctest --test-dir build -C Release -L '^task3$' --output-on-failure
 ```
 
-| 验收范围     | `-L` 标签    | 预期测试组数 | 用例数                           |
-| ------------ | ------------ | ------------ | -------------------------------- |
-| 公共支持代码 | `^provided$` | 2            | 4                                |
-| Task 1       | `^task1$`    | 2            | 32 个正确性 + 3 个性能           |
-| Task 2       | `^task2$`    | 4            | 49 个正确性 + 6 个性能           |
-| 只测 Task 2A | `^mutex$`    | 2            | 22 个正确性 + 3 个性能           |
-| 只测 Task 2B | `^cas$`      | 2            | 27 个正确性 + 3 个性能           |
-| Task 3       | `^task3$`    | 2            | 27 个正确性                      |
-| 全量验收     | 不加标签     | 11           | 上述全部测试及 `benchmark_smoke` |
+| 验收范围 | `-L` 标签 | 预期测试组数 | 用例数 |
+| --- | --- | --- | --- |
+| 公共支持代码 | `^provided$` | 2 | 4 |
+| Task 1 | `^task1$` | 1 | 32 个正确性 |
+| Task 2 | `^task2$` | 2 | 49 个正确性 |
+| 只测 Task 2A | `^mutex$` | 1 | 22 个正确性 |
+| 只测 Task 2B | `^cas$` | 1 | 27 个正确性 |
+| Task 3 | `^task3$` | 2 | 27 个正确性 |
+| 最终性能验收 | `^performance$` | 1 | 1 个 CoW 性能对比 |
+| 全量验收 | 不加标签 | 8 | 上述全部正确性用例及一个性能对比 |
 
-通过要求：重新构建成功；选中的测试组数量正确；全部用例成功且性能比例达到门槛；不出现崩溃、超时或内存错误。运行了 0 个测试、只通过单例或只通过性能测试，都不能替代完整任务验收。
+通过要求：重新构建成功；选中的测试组数量正确；对应任务的正确性用例全部通过；不出现崩溃、超时或内存错误。最终验收还需通过第 7 节的 CoW 性能对比。运行了 0 个测试、只通过单例或只通过性能测试，都不能替代完整任务验收。
 
 定位问题时可以查看详细输出或单独执行用例：
 
@@ -179,32 +179,21 @@ ctest --test-dir build -C Release -L '^task2$' -V
 ./build/epoch_test EpochTrieStoreTest.StaggeredReadersReleaseVersionsAndSharedValuesInStages
 ```
 
-## 7. 相对性能要求
+## 7. 最终性能验收：CoW 更新与整表复制
 
-性能已计入 Task 1、Task 2 的正常验收。查看具体测量结果：
+全部任务完成后，统一验收一个性能指标：**CoW 更新吞吐至少为每次完整复制 `std::map` 的 16 倍**。这项对比使用 Task 1 的 Trie 实现，单独运行一个测试组、一个用例：
 
 ```bash
 ctest --test-dir build -C Release -L '^performance$' -V
 ```
 
-输出中的 `throughput_ratio = 基准每操作耗时 / 待测每操作耗时`，大于 1 表示待测实现更快。
+固定工作负载：初始 4096 个键，每批 768 次更新，其中 3/4 为写入、1/4 为删除。两种实现都保留 8 个历史快照；CoW 复制修改路径，对照实现每次更新前完整复制 map。
 
-| 检查             | 工作负载与同机对照                                           | 通过要求                   |
-| ---------------- | ------------------------------------------------------------ | -------------------------- |
-| Task 1：查询     | 4096 个键，7/8 命中、1/8 未命中；对照 `std::map::find`       | 吞吐不低于 map 的 10%      |
-| Task 1：CoW 更新 | 4096 个键，3/4 写入、1/4 删除，保留 8 个历史快照；对照每次完整复制 map | 吞吐至少为完整复制的 16 倍 |
-| Task 1：规模增长 | 固定键长度和操作数，键数从 512 增至 8192                     | 每操作耗时增长不超过 4 倍  |
-| Task 2：纯读     | 512 个键，分别运行 1、4 个线程；对照单锁 Store               | 两次吞吐均不低于基准的 75% |
-| Task 2：读写混合 | 4 个线程、512 个键，80% 读、15% 写、5% 删除                  | 吞吐不低于单锁基准的 75%   |
-| Task 2：热点竞争 | 4 个线程、16 个热点键，40% 读、45% 写、15% 删除              | 吞吐不低于单锁基准的 75%   |
+输出中的 `throughput_ratio = 完整复制每操作耗时 / CoW 每操作耗时`，达到 **16.0** 即通过。运行结果同时输出两种实现的 `ns/op`，用于解释路径复制与整表复制的成本差异。
 
-Task 2 的门槛分别适用于 `TrieStore` 和 `CasTrieStore`，不要求 CAS 一定比互斥锁快。单锁基准复用同一份 Trie，因此 Task 2 性能通过不能替代 Task 1 验收。
+先预热，再交替顺序运行 5 轮，取每轮相对吞吐的中位数。每次采样重复固定工作负载，累计至少 20 ms 的计时工作或达到 64 批上限。初始建树和每批结束后的最终清理不计时；更新过程中的复制与回收计入。测试校验操作结果，并使用校验和避免计算被优化掉。
 
-每项比较先预热，再交替顺序运行 5 轮，取每轮相对吞吐的中位数。每轮重复固定工作负载，累计至少 20 ms 的计时工作，最多重复 64 批。计时不包含建树、线程创建和最后清理；更新过程中的复制与回收计入。测试校验查询结果，并使用校验和避免计算被优化掉。
-
-性能测试由 CTest 串行执行。应在空闲机器上运行，不要同时启动其他基准；使用 Release 构建，不使用 Sanitizer。Debug 构建会明确报错。临界失败应在相同 Release 构建下复测，并保留实际比例。
-
-`trie_bench` 是额外的观察工具，可运行 `./build/trie_bench 50000 4 1024`，参数依次是每线程操作数、线程数、键数。它观察快照复制、逐节点计数查询、借用指针查询和单线程混合更新，不替代上述 Store 端到端性能验收；`ns_per_op` 是吞吐折算成本，不是单次请求延迟。
+性能验收由 CTest 串行执行。使用 Release 构建，不使用 Sanitizer，并在空闲机器上运行。Debug 构建会明确报错。临界失败应在相同 Release 构建下复测，并保留实际比例。
 
 ## 8. 内存检查
 
@@ -213,10 +202,10 @@ Task 2 的门槛分别适用于 `TrieStore` 和 `CasTrieStore`，不要求 CAS �
 ```bash
 cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
 cmake --build build-asan --parallel 4
-ctest --test-dir build-asan -L '^task[12]$' -LE '^performance$' --output-on-failure
+ctest --test-dir build-asan -L '^task[12]$' --output-on-failure
 ```
 
-Sanitizer 检查必须排除性能测试；完整验收的性能部分仍需使用 Release 构建运行。检测工具报告的内存错误也需要修复。
+按任务标签运行 Sanitizer 检查时只执行正确性用例；最终性能验收仍需使用 Release 构建运行。检测工具报告的内存错误也需要修复。
 
 ## 9. 来源
 
